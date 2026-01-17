@@ -17,7 +17,7 @@ project(
 	'speedr',
 	'cpp',
 	default_options: ['cpp_std=c++17'],
-	version: '1.0.0',
+	version: '1.0.1',
 	license: 'Apache-2.0',
 	license_files: 'COPYING.txt',
 )
