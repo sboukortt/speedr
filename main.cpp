@@ -75,8 +75,8 @@ int main(int argc, char** argv) {
 #else
 		SndfileHandle input(filename);
 #endif
-		if (!input) {
-			std::cerr << "Failed to open " << filename << " for audio decoding" << std::endl;
+		if (!input.rawHandle()) {
+			std::cerr << "Failed to open " << filename << " for audio decoding: " << input.strError() << std::endl;
 			return EXIT_FAILURE;
 		}
 		if (input.channels() > 2) {
