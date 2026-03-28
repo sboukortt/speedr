@@ -21,6 +21,10 @@
 #include <CLI/CLI.hpp>
 #include <sndfile.hh>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "compute_dr.h"
 
 namespace {
@@ -87,7 +91,11 @@ int main(int argc, char** argv) {
 		tracks.emplace_back(filename, std::move(input), Rating());
 	}
 
-	#pragma omp parallel for
+#ifdef _OPENMP
+	const int num_threads = std::min<int>(tracks.size(), omp_get_max_threads());
+#endif
+
+	#pragma omp parallel for num_threads(num_threads)
 	for (auto& track: tracks) {
 		std::get<Rating>(track) = ComputeRating(std::get<SndfileHandle>(track));
 	}
