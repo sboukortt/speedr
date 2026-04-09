@@ -57,9 +57,9 @@ HWY_ATTR float ComputeMonoDR(SndfileHandle& input) {
 			sums_of_squares = hn::MulAdd(samples, samples, sums_of_squares);
 			peaks = hn::Max(peaks, hn::Abs(samples));
 		});
-		const float sum_of_squares = hn::GetLane(hn::SumOfLanes(d, sums_of_squares));
+		const float sum_of_squares = hn::ReduceSum(d, sums_of_squares);
 		block_mean_square.push_back(sum_of_squares / samples_read);
-		block_peak.push_back(hn::GetLane(hn::MaxOfLanes(d, peaks)));
+		block_peak.push_back(hn::ReduceMax(d, peaks));
 	}
 
 	std::nth_element(block_mean_square.begin(), block_mean_square.begin() + num_top_blocks - 1, block_mean_square.end(), std::greater());
@@ -121,12 +121,12 @@ HWY_ATTR std::pair<float, float> ComputeStereoDR(SndfileHandle& input) {
 			left_peaks = hn::Max(left_peaks, hn::Abs(left));
 			right_peaks = hn::Max(right_peaks, hn::Abs(right));
 		}
-		const float left_sum_of_squares = hn::GetLane(hn::SumOfLanes(d, left_sums_of_squares));
-		const float right_sum_of_squares = hn::GetLane(hn::SumOfLanes(d, right_sums_of_squares));
+		const float left_sum_of_squares = hn::ReduceSum(d, left_sums_of_squares);
+		const float right_sum_of_squares = hn::ReduceSum(d, right_sums_of_squares);
 		left_block_mean_square.push_back(left_sum_of_squares / frames_read);
 		right_block_mean_square.push_back(right_sum_of_squares / frames_read);
-		left_block_peak.push_back(hn::GetLane(hn::MaxOfLanes(d, left_peaks)));
-		right_block_peak.push_back(hn::GetLane(hn::MaxOfLanes(d, right_peaks)));
+		left_block_peak.push_back(hn::ReduceMax(d, left_peaks));
+		right_block_peak.push_back(hn::ReduceMax(d, right_peaks));
 	}
 
 	std::nth_element(left_block_mean_square.begin(), left_block_mean_square.begin() + num_top_blocks - 1, left_block_mean_square.end(), std::greater());
