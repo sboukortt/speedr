@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <variant>
 #include <vector>
 
 #include <CLI/CLI.hpp>
@@ -30,14 +31,13 @@
 namespace {
 
 struct Rating {
-	enum class RatingType {
-		kMonoRating,
-		kStereoRating,
-	} rating_type;
-	union {
-		float mono_rating;
-		struct { float left, right; } stereo_rating;
+	struct MonoRating {
+		float value;
 	};
+	struct StereoRating {
+		float left, right;
+	};
+	std::variant<MonoRating, StereoRating> raw_rating;
 
 	float final_rating;
 };
@@ -46,8 +46,7 @@ Rating ComputeRating(SndfileHandle& input) {
 	if (input.channels() == 1) {
 		const float dr = speedr::ComputeMonoDR(input);
 		return {
-			.rating_type = Rating::RatingType::kMonoRating,
-			.mono_rating = dr,
+			.raw_rating = Rating::MonoRating{dr},
 			.final_rating = std::round(dr)
 		};
 	}
@@ -55,8 +54,7 @@ Rating ComputeRating(SndfileHandle& input) {
 		const std::pair<float, float> raw_rating = speedr::ComputeStereoDR(input);
 		const auto [left_dr, right_dr] = raw_rating;
 		return {
-			.rating_type = Rating::RatingType::kStereoRating,
-			.stereo_rating = {left_dr, right_dr},
+			.raw_rating = Rating::StereoRating{left_dr, right_dr},
 			.final_rating = std::round((left_dr + right_dr) / 2)
 		};
 	}
@@ -103,17 +101,16 @@ int main(int argc, char** argv) {
 	float album_rating = 0.f;
 	for (const auto& [filename, handle, rating]: tracks) {
 		std::cout << filename << ":" << std::endl;
-		switch (rating.rating_type) {
-			case Rating::RatingType::kMonoRating:
-				std::cout << "\tRaw DR: " << rating.mono_rating << std::endl;
-				break;
-			case Rating::RatingType::kStereoRating: {
-				const auto [left_dr, right_dr] = rating.stereo_rating;
-				std::cout << "\tLeft DR: " << left_dr << std::endl;
-				std::cout << "\tRight DR: " << right_dr << std::endl;
-				break;
+		struct RatingPrinter {
+			void operator()(const Rating::MonoRating& rating) const {
+				std::cout << "\tRaw DR: " << rating.value << std::endl;
 			}
-		}
+			void operator()(const Rating::StereoRating& rating) const {
+				std::cout << "\tLeft DR: " << rating.left << std::endl;
+				std::cout << "\tRight DR: " << rating.right << std::endl;
+			}
+		};
+		std::visit(RatingPrinter{}, rating.raw_rating);
 		if (std::isfinite(rating.final_rating)) {
 			std::cout << "\tTrack rating: DR" << rating.final_rating << std::endl;
 		}
