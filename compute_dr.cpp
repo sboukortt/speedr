@@ -151,12 +151,88 @@ HWY_ATTR std::pair<float, float> ComputeStereoDR(SndfileHandle& input) {
 	};
 }
 
+HWY_ATTR std::vector<float> ComputeMultichannelDR(SndfileHandle& input) {
+	HWY_FULL(float) d;
+	using V = decltype(hn::Zero(d));
+	static constexpr int kBatchSize = 256;
+	const int block_size = GetBlockSize(input);
+	const auto num_blocks = std::max<std::size_t>(1, (input.frames() + block_size - 1) / block_size);
+	const auto num_top_blocks = std::max<std::size_t>(1, num_blocks / 5);
+	const int num_channels = input.channels();
+	const int num_lanes = hn::Lanes(d);
+	hwy::AlignedFreeUniquePtr<float[]> block_samples = hwy::AllocateAligned<float>(kBatchSize * num_channels);
+	hwy::AlignedFreeUniquePtr<float[]> channel_block_samples = hwy::AllocateAligned<float>(kBatchSize);
+	hwy::AlignedFreeUniquePtr<float[]> channel_sums_of_squares = hwy::AllocateAligned<float>(num_lanes * num_channels);
+	hwy::AlignedFreeUniquePtr<float[]> channel_peaks = hwy::AllocateAligned<float>(num_lanes * num_channels);
+	std::vector<std::vector<float>> block_mean_square(num_channels);
+	std::vector<std::vector<float>> block_peak(num_channels);
+	block_mean_square.reserve(num_channels);
+	block_peak.reserve(num_channels);
+	for (int c = 0; c < num_channels; ++c) {
+		block_mean_square.reserve(num_blocks);
+		block_peak.reserve(num_blocks);
+	}
+
+	float* const HWY_RESTRICT interleaved = block_samples.get();
+	for (std::size_t i_block = 0; i_block < num_blocks; ++i_block) {
+		for (int c = 0; c < num_channels; ++c) {
+			hn::Store(hn::Zero(d), d, &channel_sums_of_squares[c * num_lanes]);
+			hn::Store(hn::Zero(d), d, &channel_peaks[c * num_lanes]);
+		}
+		int frames_read = 0;
+		while (frames_read < block_size) {
+			const int batch_size = input.readf(interleaved, std::min(block_size - frames_read, kBatchSize));
+			if (batch_size == 0) break;
+			for (int c = 0; c < num_channels; ++c) {
+				float* const HWY_RESTRICT deinterleaved = channel_block_samples.get();
+				for (int i = 0; i < batch_size; ++i) {
+					deinterleaved[i] = interleaved[i * num_channels + c];
+				}
+				V sums_of_squares = hn::Load(d, &channel_sums_of_squares[c * num_lanes]);
+				V peaks = hn::Load(d, &channel_peaks[c * num_lanes]);
+				hn::Foreach(d, deinterleaved, batch_size, hn::Zero(d), [&](auto d, const V samples) HWY_ATTR {
+					sums_of_squares = hn::MulAdd(samples, samples, sums_of_squares);
+					peaks = hn::Max(peaks, hn::Abs(samples));
+				});
+				hn::Store(sums_of_squares, d, &channel_sums_of_squares[c * num_lanes]);
+				hn::Store(peaks, d, &channel_peaks[c * num_lanes]);
+			}
+			frames_read += batch_size;
+		}
+		for (int c = 0; c < num_channels; ++c) {
+			const V sums_of_squares = hn::Load(d, &channel_sums_of_squares[c * num_lanes]);
+			const V peaks = hn::Load(d, &channel_peaks[c * num_lanes]);
+			const float sum_of_squares = hn::ReduceSum(d, sums_of_squares);
+			block_mean_square[c].push_back(sum_of_squares / frames_read);
+			block_peak[c].push_back(hn::ReduceMax(d, peaks));
+		}
+	}
+
+	std::vector<float> ratings;
+	ratings.reserve(num_channels);
+	for (int c = 0; c < num_channels; ++c) {
+		std::nth_element(block_mean_square[c].begin(), block_mean_square[c].begin() + num_top_blocks - 1, block_mean_square[c].end(), std::greater());
+		float average_mean_square = 0.f;
+		for (std::size_t i = 0; i < num_top_blocks; ++i) {
+			average_mean_square += block_mean_square[c][i];
+		}
+		average_mean_square *= 2.f / num_top_blocks;
+
+		std::nth_element(block_peak[c].begin(), block_peak[c].begin() + 1, block_peak[c].end(), std::greater());
+		const float peak = block_peak[c][std::min<std::size_t>(1, block_peak.size() - 1)];
+
+		ratings.push_back(10 * std::log10(peak * peak / average_mean_square));
+	}
+	return ratings;
+}
+
 }
 
 #if HWY_ONCE
 
 HWY_EXPORT(ComputeMonoDR);
 HWY_EXPORT(ComputeStereoDR);
+HWY_EXPORT(ComputeMultichannelDR);
 
 float ComputeMonoDR(SndfileHandle& input) {
 	return HWY_DYNAMIC_DISPATCH(ComputeMonoDR)(input);
@@ -164,6 +240,10 @@ float ComputeMonoDR(SndfileHandle& input) {
 
 std::pair<float, float> ComputeStereoDR(SndfileHandle& input) {
 	return HWY_DYNAMIC_DISPATCH(ComputeStereoDR)(input);
+}
+
+std::vector<float> ComputeMultichannelDR(SndfileHandle& input) {
+	return HWY_DYNAMIC_DISPATCH(ComputeMultichannelDR)(input);
 }
 
 #endif

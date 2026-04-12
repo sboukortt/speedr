@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <variant>
 #include <vector>
@@ -37,26 +38,37 @@ struct Rating {
 	struct StereoRating {
 		float left, right;
 	};
-	std::variant<MonoRating, StereoRating> raw_rating;
+	using MultichannelRating = std::vector<float>;
+	std::variant<MonoRating, StereoRating, MultichannelRating> raw_rating;
 
 	float final_rating;
 };
 
 Rating ComputeRating(SndfileHandle& input) {
-	if (input.channels() == 1) {
-		const float dr = speedr::ComputeMonoDR(input);
-		return {
-			.raw_rating = Rating::MonoRating{dr},
-			.final_rating = std::round(dr)
-		};
-	}
-	else {
-		const std::pair<float, float> raw_rating = speedr::ComputeStereoDR(input);
-		const auto [left_dr, right_dr] = raw_rating;
-		return {
-			.raw_rating = Rating::StereoRating{left_dr, right_dr},
-			.final_rating = std::round((left_dr + right_dr) / 2)
-		};
+	switch (input.channels()) {
+		case 1: {
+			const float dr = speedr::ComputeMonoDR(input);
+			return {
+				.raw_rating = Rating::MonoRating{dr},
+				.final_rating = std::round(dr),
+			};
+		}
+		case 2: {
+			const std::pair<float, float> raw_rating = speedr::ComputeStereoDR(input);
+			const auto [left_dr, right_dr] = raw_rating;
+			return {
+				.raw_rating = Rating::StereoRating{left_dr, right_dr},
+				.final_rating = std::round((left_dr + right_dr) / 2),
+			};
+		}
+		default: {
+			const std::vector<float> raw_rating = speedr::ComputeMultichannelDR(input);
+			const float mean = std::accumulate(raw_rating.begin(), raw_rating.end(), 0.f, std::plus()) / raw_rating.size();
+			return {
+				.raw_rating = raw_rating,
+				.final_rating = std::round(mean),
+			};
+		}
 	}
 }
 
@@ -71,6 +83,8 @@ int main(int argc, char** argv) {
 
 	std::vector<std::tuple<std::string_view, SndfileHandle, Rating>> tracks;
 
+	bool print_multichannel_warning = false;
+
 	for (const std::string& filename: filenames) {
 #ifdef _WIN32
 		SndfileHandle input(CLI::widen(filename).c_str());
@@ -82,11 +96,14 @@ int main(int argc, char** argv) {
 			return EXIT_FAILURE;
 		}
 		if (input.channels() > 2) {
-			std::cerr << "This metric is only designed for mono and stereo input (" << filename << " has " << input.channels() << " channels)" << std::endl;
-			return EXIT_FAILURE;
+			print_multichannel_warning = true;
 		}
 
 		tracks.emplace_back(filename, std::move(input), Rating());
+	}
+
+	if (print_multichannel_warning) {
+		std::cerr << "Warning: some inputs have more than 2 channels. Be careful not to overinterpret the overall rating for those tracks." << std::endl;
 	}
 
 #ifdef _OPENMP
@@ -108,6 +125,11 @@ int main(int argc, char** argv) {
 			void operator()(const Rating::StereoRating& rating) const {
 				std::cout << "\tLeft DR: " << rating.left << std::endl;
 				std::cout << "\tRight DR: " << rating.right << std::endl;
+			}
+			void operator()(const Rating::MultichannelRating& rating) const {
+				for (std::size_t i = 0; i < rating.size(); ++i) {
+					std::cout << "\tChannel " << (i + 1) << ": " << rating[i] << std::endl;
+				}
 			}
 		};
 		std::visit(RatingPrinter{}, rating.raw_rating);

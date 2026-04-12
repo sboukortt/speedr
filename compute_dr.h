@@ -16,6 +16,7 @@
 #pragma once
 
 #include <utility>
+#include <vector>
 
 #include <sndfile.hh>
 
@@ -24,5 +25,7 @@ namespace speedr {
 float ComputeMonoDR(SndfileHandle& input);
 
 std::pair<float, float> ComputeStereoDR(SndfileHandle& input);
+
+std::vector<float> ComputeMultichannelDR(SndfileHandle& input);
 
 }
