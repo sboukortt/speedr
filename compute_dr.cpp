@@ -166,11 +166,9 @@ HWY_ATTR std::vector<float> ComputeMultichannelDR(SndfileHandle& input) {
 	hwy::AlignedFreeUniquePtr<float[]> channel_peaks = hwy::AllocateAligned<float>(num_lanes * num_channels);
 	std::vector<std::vector<float>> block_mean_square(num_channels);
 	std::vector<std::vector<float>> block_peak(num_channels);
-	block_mean_square.reserve(num_channels);
-	block_peak.reserve(num_channels);
 	for (int c = 0; c < num_channels; ++c) {
-		block_mean_square.reserve(num_blocks);
-		block_peak.reserve(num_blocks);
+		block_mean_square[c].reserve(num_blocks);
+		block_peak[c].reserve(num_blocks);
 	}
 
 	float* const HWY_RESTRICT interleaved = block_samples.get();
