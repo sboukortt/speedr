@@ -62,10 +62,10 @@ Rating ComputeRating(SndfileHandle& input) {
 			};
 		}
 		default: {
-			const std::vector<float> raw_rating = speedr::ComputeMultichannelDR(input);
+			std::vector<float> raw_rating = speedr::ComputeMultichannelDR(input);
 			const float mean = std::accumulate(raw_rating.begin(), raw_rating.end(), 0.f, std::plus()) / raw_rating.size();
 			return {
-				.raw_rating = raw_rating,
+				.raw_rating = std::move(raw_rating),
 				.final_rating = std::round(mean),
 			};
 		}
