@@ -15,17 +15,26 @@
 
 #pragma once
 
-#include <utility>
+#include <variant>
 #include <vector>
 
 #include <sndfile.hh>
 
 namespace speedr {
 
-float ComputeMonoDR(SndfileHandle& input);
+struct Rating {
+	struct MonoRating {
+		float value;
+	};
+	struct StereoRating {
+		float left, right;
+	};
+	using MultichannelRating = std::vector<float>;
+	std::variant<MonoRating, StereoRating, MultichannelRating> raw_rating;
 
-std::pair<float, float> ComputeStereoDR(SndfileHandle& input);
-
-std::vector<float> ComputeMultichannelDR(SndfileHandle& input);
+	float final_rating;
+	
+	static Rating Compute(SndfileHandle& input);
+};
 
 }

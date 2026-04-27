@@ -17,6 +17,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <numeric>
 #include <vector>
 
 #undef HWY_TARGET_INCLUDE
@@ -27,16 +29,18 @@
 #include <hwy/highway.h>
 
 namespace speedr {
+
 namespace HWY_NAMESPACE {
+namespace {
 
 namespace hn = hwy::HWY_NAMESPACE;
 
-static int GetBlockSize(const SndfileHandle& input) {
+int GetBlockSize(const SndfileHandle& input) {
 	const int samplerate = input.samplerate();
 	return std::lround(3.f * static_cast<float>(samplerate) * 44160.f / 44100);
 }
 
-HWY_ATTR float ComputeMonoDR(SndfileHandle& input) {
+HWY_ATTR Rating::MonoRating ComputeMonoDR(SndfileHandle& input) {
 	HWY_FULL(float) d;
 	using V = decltype(hn::Zero(d));
 	const int block_size = GetBlockSize(input);
@@ -73,10 +77,10 @@ HWY_ATTR float ComputeMonoDR(SndfileHandle& input) {
 	std::nth_element(block_peak.begin(), block_peak.begin() + 1, block_peak.end(), std::greater());
 	const float peak = block_peak[std::min<std::size_t>(1, block_peak.size() - 1)];
 
-	return 10 * std::log10(peak * peak / average_mean_square);
+	return {10 * std::log10(peak * peak / average_mean_square)};
 }
 
-HWY_ATTR std::pair<float, float> ComputeStereoDR(SndfileHandle& input) {
+HWY_ATTR Rating::StereoRating ComputeStereoDR(SndfileHandle& input) {
 	HWY_FULL(float) d;
 	using V = decltype(hn::Zero(d));
 	const int block_size = GetBlockSize(input);
@@ -151,7 +155,7 @@ HWY_ATTR std::pair<float, float> ComputeStereoDR(SndfileHandle& input) {
 	};
 }
 
-HWY_ATTR std::vector<float> ComputeMultichannelDR(SndfileHandle& input) {
+HWY_ATTR Rating::MultichannelRating ComputeMultichannelDR(SndfileHandle& input) {
 	HWY_FULL(float) d;
 	using V = decltype(hn::Zero(d));
 	static constexpr int kBatchSize = 256;
@@ -224,24 +228,44 @@ HWY_ATTR std::vector<float> ComputeMultichannelDR(SndfileHandle& input) {
 	return ratings;
 }
 
+Rating ComputeRating(SndfileHandle& input) {
+	switch (input.channels()) {
+		case 1: {
+			const Rating::MonoRating rating = ComputeMonoDR(input);
+			return {
+				.raw_rating = rating,
+				.final_rating = std::round(rating.value),
+			};
+		}
+		case 2: {
+			const Rating::StereoRating rating = ComputeStereoDR(input);
+			return {
+				.raw_rating = rating,
+				.final_rating = std::round((rating.left + rating.right) / 2),
+			};
+		}
+		default: {
+			Rating::MultichannelRating rating = ComputeMultichannelDR(input);
+			const float mean = std::accumulate(rating.begin(), rating.end(), 0.f, std::plus()) / rating.size();
+			return {
+				.raw_rating = std::move(rating),
+				.final_rating = std::round(mean),
+			};
+		}
+	}
+}
+
+}
 }
 
 #if HWY_ONCE
 
-HWY_EXPORT(ComputeMonoDR);
-HWY_EXPORT(ComputeStereoDR);
-HWY_EXPORT(ComputeMultichannelDR);
-
-float ComputeMonoDR(SndfileHandle& input) {
-	return HWY_DYNAMIC_DISPATCH(ComputeMonoDR)(input);
+namespace {
+HWY_EXPORT(ComputeRating);
 }
 
-std::pair<float, float> ComputeStereoDR(SndfileHandle& input) {
-	return HWY_DYNAMIC_DISPATCH(ComputeStereoDR)(input);
-}
-
-std::vector<float> ComputeMultichannelDR(SndfileHandle& input) {
-	return HWY_DYNAMIC_DISPATCH(ComputeMultichannelDR)(input);
+Rating Rating::Compute(SndfileHandle& input) {
+	return HWY_DYNAMIC_DISPATCH(ComputeRating)(input);
 }
 
 #endif

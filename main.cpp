@@ -13,10 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <cmath>
 #include <cstdlib>
-#include <functional>
 #include <iostream>
+#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -29,50 +28,7 @@
 
 #include "compute_dr.h"
 
-namespace {
-
-struct Rating {
-	struct MonoRating {
-		float value;
-	};
-	struct StereoRating {
-		float left, right;
-	};
-	using MultichannelRating = std::vector<float>;
-	std::variant<MonoRating, StereoRating, MultichannelRating> raw_rating;
-
-	float final_rating;
-};
-
-Rating ComputeRating(SndfileHandle& input) {
-	switch (input.channels()) {
-		case 1: {
-			const float dr = speedr::ComputeMonoDR(input);
-			return {
-				.raw_rating = Rating::MonoRating{dr},
-				.final_rating = std::round(dr),
-			};
-		}
-		case 2: {
-			const std::pair<float, float> raw_rating = speedr::ComputeStereoDR(input);
-			const auto [left_dr, right_dr] = raw_rating;
-			return {
-				.raw_rating = Rating::StereoRating{left_dr, right_dr},
-				.final_rating = std::round((left_dr + right_dr) / 2),
-			};
-		}
-		default: {
-			std::vector<float> raw_rating = speedr::ComputeMultichannelDR(input);
-			const float mean = std::accumulate(raw_rating.begin(), raw_rating.end(), 0.f, std::plus()) / raw_rating.size();
-			return {
-				.raw_rating = std::move(raw_rating),
-				.final_rating = std::round(mean),
-			};
-		}
-	}
-}
-
-}
+using ::speedr::Rating;
 
 int main(int argc, char** argv) {
 	CLI::App app("SpeeDR - dynamic range calculator");
@@ -112,7 +68,7 @@ int main(int argc, char** argv) {
 
 	#pragma omp parallel for num_threads(num_threads)
 	for (auto& track: tracks) {
-		std::get<Rating>(track) = ComputeRating(std::get<SndfileHandle>(track));
+		std::get<Rating>(track) = Rating::Compute(std::get<SndfileHandle>(track));
 	}
 
 	float album_rating = 0.f;
