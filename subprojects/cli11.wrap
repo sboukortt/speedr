@@ -1,6 +1,6 @@
 [wrap-git]
 url = https://github.com/CLIUtils/CLI11.git
-revision = b874409ff01bc5ae4956643421d82cca136b4842
+revision = 37bb6edc5317e99af72ef48405e65d9ca5218861
 depth = 1
 
 [provide]

@@ -23,7 +23,7 @@ project(
 )
 
 sndfile_dep = dependency('sndfile')
-hwy_dep = dependency('libhwy', version: '1.3.0', default_options: [
+hwy_dep = dependency('libhwy', version: ['>=1.3.0', '<2.0.0'], default_options: [
 	'contrib=disabled',
 	'examples=disabled',
 	'tests=disabled',
